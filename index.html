@@ -1,3 +1,9 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
 <title>مُتابعة — دائرة المطابقة</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -406,6 +412,16 @@ button.kpi:hover .k-ico .ico{transform:scale(1.15) rotate(-6deg)}
 .fbar{width:90px;height:6px;border-radius:9px;background:rgba(255,255,255,.12);overflow:hidden}
 .fbar i{display:block;height:100%;width:75%;background:#2CCB9C;border-radius:9px;transform-origin:right;animation:fill 2.4s cubic-bezier(.2,.8,.2,1) infinite alternate}
 
+/* login feedback */
+.login-alert{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:12px;background:var(--red-soft);color:var(--red);font-weight:500;font-size:13.5px;line-height:1.6;border:1px solid color-mix(in srgb,var(--red) 30%,transparent)}
+.login-alert .ico{margin-top:2px}
+.input.bad{border-color:var(--red);box-shadow:0 0 0 3px var(--red-soft)}
+.shake{animation:shake .45s}
+@keyframes shake{20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+.spin{width:16px;height:16px;border:2px solid currentColor;border-inline-end-color:transparent;border-radius:50%;animation:rot .7s linear infinite;flex:none}
+@keyframes rot{to{transform:rotate(360deg)}}
+.btn:disabled{opacity:.85;cursor:progress}
+
 /* credit */
 .credit{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;color:var(--ink-3);font-size:12.5px;padding-top:16px;margin-top:6px;border-top:1px solid var(--line);text-align:center}
 .credit b{color:var(--ink);font-weight:600;font-family:var(--f-display)}
@@ -446,7 +462,14 @@ button.kpi:hover .k-ico .ico{transform:scale(1.15) rotate(-6deg)}
 @keyframes slide{from{transform:translateX(-24px);opacity:0}}
 @keyframes pop{from{transform:scale(.97);opacity:0}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+[hidden]{display:none!important}
+.login,.shell{min-height:100vh;min-height:100dvh}
+html{-webkit-text-size-adjust:100%}
+body{margin:0}
+img{max-width:100%}
 </style>
+</head>
+<body>
 
 <div id="app" dir="rtl" lang="ar"></div>
 <div class="toasts" id="toasts" dir="rtl" aria-live="polite"></div>
@@ -654,7 +677,7 @@ async function boot(){
 async function enterLive(uid){
   S.data = await DB.load();
   S.me = person(uid); S.anim = true;
-  if (!S.me || !(S.me.role === 'director' || S.me.section_id)){ await DB.signOut(); S.me = null; renderLogin(); setTimeout(() => { const e = $('#lg-err'); if (e) e.textContent = 'حسابك لم يُفعّل بعد. تواصل مع مسؤولة النظام لتحديد دورك وقسمك.'; }, 50); return; }
+  if (!S.me || !(S.me.role === 'director' || S.me.section_id)){ await DB.signOut(); S.me = null; renderLogin(); setTimeout(() => showLoginError('حسابك لم يُفعّل بعد. تواصل مع مسؤولة النظام لتحديد دورك وقسمك.'), 50); return; }
   render();
 }
 async function refresh(){ S.data = await DB.load(); if (LIVE) S.me = person(S.me.id); render(); }
@@ -714,8 +737,8 @@ function renderLogin(){
         <form id="loginForm" class="form" style="padding:0;grid-template-columns:1fr">
           <div class="field"><label for="lg-email">البريد الإلكتروني</label><input id="lg-email" class="input" type="email" required autocomplete="email" dir="ltr"></div>
           <div class="field"><label for="lg-pass">كلمة المرور</label><input id="lg-pass" class="input" type="password" required autocomplete="current-password" dir="ltr"></div>
+          <div class="login-alert" id="lg-alert" role="alert" hidden>${ico('alert')}<span id="lg-err"></span></div>
           <button class="btn primary" type="submit" style="justify-content:center;padding:11px">دخول ${ico('arrow','sm')}</button>
-          <p class="hint" id="lg-err" role="alert"></p>
         </form>` : `
         <div>
           <span class="demo-pill">${ico('flask','sm')}نسخة تجريبية ببيانات أمثلة</span>
@@ -733,10 +756,15 @@ function renderLogin(){
   if (LIVE){
     $('#loginForm').addEventListener('submit', async e => {
       e.preventDefault();
-      const btn = e.target.querySelector('button'); btn.disabled = true;
-      try { await DB.signIn($('#lg-email').value.trim(), $('#lg-pass').value); const s = await DB.session(); await enterLive(s.user.id); }
-      catch (err){ $('#lg-err').textContent = 'البريد أو كلمة المرور غير صحيحة.'; btn.disabled = false; }
+      const btn = e.target.querySelector('button[type="submit"]'), label = btn.innerHTML;
+      const reset = () => { btn.disabled = false; btn.innerHTML = label; };
+      hideLoginError(); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>جارٍ التحقق…';
+      try { await DB.signIn($('#lg-email').value.trim(), $('#lg-pass').value); }
+      catch (err){ reset(); showLoginError(loginMsg(err)); $('#lg-pass').select(); return; }
+      try { const s = await DB.session(); await enterLive(s.user.id); }
+      catch (err){ console.error(err); reset(); showLoginError('تم التحقق من حسابك لكن تعذّر تحميل البيانات. حدّث الصفحة وحاول مرة أخرى.'); }
     });
+    ['#lg-email','#lg-pass'].forEach(id => $(id).addEventListener('input', hideLoginError));
   } else {
     document.querySelectorAll('[data-login]').forEach(b => b.onclick = () => {
       S.me = person(b.dataset.login); store.set('motabaa-demo-user', S.me.id); S.view = 'dashboard'; render();
@@ -744,6 +772,23 @@ function renderLogin(){
   }
 }
 let artRAF = 0;
+function loginMsg(err){
+  const m = String(err?.message || '').toLowerCase(), st = err?.status;
+  if (m.includes('email not confirmed')) return 'هذا الحساب لم يُفعّل بعد. تواصل مع مسؤولة النظام.';
+  if (st === 429 || m.includes('rate') || m.includes('too many')) return 'محاولات كثيرة متتالية. انتظر دقيقة ثم حاول مرة أخرى.';
+  if (m.includes('failed to fetch') || m.includes('network') || m.includes('load failed')) return 'تعذّر الاتصال بالخادم. تحقق من اتصال الإنترنت وحاول مرة أخرى.';
+  return 'البريد الإلكتروني أو كلمة المرور غير صحيحة. تأكد منهما وحاول مرة أخرى.';
+}
+function showLoginError(msg){
+  const a = $('#lg-alert'); if (!a) return;
+  $('#lg-err').textContent = msg; a.hidden = false;
+  ['#lg-email','#lg-pass'].forEach(id => $(id)?.classList.add('bad'));
+  const f = $('#loginForm'); if (f && !REDUCED()){ f.classList.remove('shake'); void f.offsetWidth; f.classList.add('shake'); }
+}
+function hideLoginError(){
+  const a = $('#lg-alert'); if (a) a.hidden = true;
+  ['#lg-email','#lg-pass'].forEach(id => $(id)?.classList.remove('bad'));
+}
 function drawArt(){
   cancelAnimationFrame(artRAF);
   const c = $('#art'); if (!c) return;
@@ -1462,3 +1507,5 @@ function bindModal(){
 var VIEWS, AFTER;
 boot();
 </script>
+</body>
+</html>
