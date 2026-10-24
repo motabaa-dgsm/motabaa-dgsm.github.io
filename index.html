@@ -422,6 +422,8 @@ button.kpi:hover .k-ico .ico{transform:scale(1.15) rotate(-6deg)}
 @keyframes rot{to{transform:rotate(360deg)}}
 .btn:disabled{opacity:.85;cursor:progress}
 
+.ok-alert{background:var(--green-soft);color:var(--green);border-color:color-mix(in srgb,var(--green) 30%,transparent)}
+
 /* credit */
 .credit{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;color:var(--ink-3);font-size:12.5px;padding-top:16px;margin-top:6px;border-top:1px solid var(--line);text-align:center}
 .credit b{color:var(--ink);font-weight:600;font-family:var(--f-display)}
@@ -865,9 +867,9 @@ const NAV = [
   {id:'topics', label:'المواضيع', icon:'folder'},
   {id:'meetings', label:'الاجتماعات والقرارات', icon:'cal', short:'الاجتماعات'},
   {id:'team', label:'الفريق', icon:'users'},
-  {id:'settings', label:'الإعدادات والربط', icon:'db', short:'الإعدادات'}
+  {id:'settings', label:'الإعدادات', icon:'db', short:'الإعدادات'}
 ];
-const TITLES = {dashboard:'لوحة القيادة', tasks:'المهام', topics:'المواضيع', meetings:'الاجتماعات والقرارات', team:'الفريق', settings:'الإعدادات والربط'};
+const TITLES = {dashboard:'لوحة القيادة', tasks:'المهام', topics:'المواضيع', meetings:'الاجتماعات والقرارات', team:'الفريق', settings:'الإعدادات'};
 
 function attentionCount(){
   const m = me();
@@ -1376,10 +1378,6 @@ AFTER.team = () => {
 
 /* =================== SETTINGS =================== */
 VIEWS.settings = () => `
-  <section class="panel">
-    <div class="panel-head"><h3>حالة الربط</h3></div>
-    <div class="status-line">${LIVE ? `${chip('متصل','green',true)}<span>النظام مربوط بقاعدة بيانات Supabase وكل التعديلات تُحفظ للجميع.</span>` : `${chip('وضع تجريبي','amber',true)}<span>البيانات الحالية أمثلة، والتعديلات تُحفظ في هذا المتصفح فقط.</span>`}</div>
-  </section>
   ${!LIVE ? `<section class="panel">
     <div class="panel-head"><h3>ربط قاعدة البيانات (Supabase)</h3><span class="sub">مرة واحدة فقط</span></div>
     <ol class="steps">
@@ -1395,7 +1393,9 @@ VIEWS.settings = () => `
     <form id="pwForm" class="form" style="padding:0">
       <div class="field"><label for="pw1">كلمة المرور الجديدة</label><input id="pw1" class="input" type="password" minlength="8" required autocomplete="new-password" dir="ltr"></div>
       <div class="field"><label for="pw2">تأكيد كلمة المرور</label><input id="pw2" class="input" type="password" minlength="8" required autocomplete="new-password" dir="ltr"></div>
-      <div class="full" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><button class="btn primary" type="submit">${ico('check','sm')}حفظ كلمة المرور</button><span class="hint" id="pwMsg" role="status">8 أحرف على الأقل</span></div>
+      <div class="full login-alert ok-alert" id="pwOk" role="status" hidden>${ico('check')}<span>تم تغيير كلمة المرور بنجاح. استخدمها في المرة القادمة عند تسجيل الدخول.</span></div>
+      <div class="full login-alert" id="pwErr" role="alert" hidden>${ico('alert')}<span id="pwErrText"></span></div>
+      <div class="full" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><button class="btn primary" type="submit" id="pwBtn">${ico('check','sm')}حفظ كلمة المرور</button><span class="hint">8 أحرف على الأقل</span></div>
     </form>
   </section>` : ''}
   <section class="grid g-2">
@@ -1409,7 +1409,7 @@ VIEWS.settings = () => `
     </div>
     <div class="panel">
       <div class="panel-head"><h3>النسخ الاحتياطي</h3></div>
-      <p class="hint" style="margin-top:0">صدّري جميع المهام المرئية لك إلى ملف يفتح في Excel. يُنصح بنسخة أسبوعية.</p>
+      <p class="hint" style="margin-top:0">صدّر جميع المهام المرئية لك إلى ملف يفتح في Excel. يُنصح بنسخة أسبوعية.</p>
       <button class="btn" id="exportAll">${ico('download','sm')}تصدير كل المهام</button>
     </div>
   </section>`;
@@ -1419,12 +1419,17 @@ AFTER.settings = () => {
   const pf = $('#pwForm');
   if (pf) pf.onsubmit = async e => {
     e.preventDefault();
-    const a = $('#pw1').value, b = $('#pw2').value, msg = $('#pwMsg');
-    if (a.length < 8){ msg.textContent = 'كلمة المرور يجب أن تكون 8 أحرف على الأقل.'; return; }
-    if (a !== b){ msg.textContent = 'كلمتا المرور غير متطابقتين.'; return; }
-    try { await DB.changePassword(a); pf.reset(); msg.textContent = 'تم تغيير كلمة المرور.'; toast('تم تغيير كلمة المرور'); }
-    catch (err){ msg.textContent = 'تعذّر التغيير. جرّب كلمة مرور مختلفة عن السابقة.'; }
+    const a = $('#pw1').value, b = $('#pw2').value, ok = $('#pwOk'), bad = $('#pwErr'), btn = $('#pwBtn'), label = btn.innerHTML;
+    const fail = m => { $('#pwErrText').textContent = m; bad.hidden = false; ok.hidden = true; };
+    ok.hidden = true; bad.hidden = true;
+    if (a.length < 8) return fail('كلمة المرور يجب أن تكون 8 أحرف على الأقل.');
+    if (a !== b) return fail('كلمتا المرور غير متطابقتين. أعد كتابتهما بنفس الشكل.');
+    btn.disabled = true; btn.innerHTML = '<span class="spin"></span>جارٍ الحفظ…';
+    try { await DB.changePassword(a); pf.reset(); ok.hidden = false; toast('تم تغيير كلمة المرور بنجاح'); }
+    catch (err){ const m = String(err?.message||'').toLowerCase(); fail(m.includes('different') || m.includes('same') ? 'كلمة المرور الجديدة يجب أن تختلف عن الحالية.' : m.includes('fetch') || m.includes('network') ? 'تعذّر الاتصال بالخادم. تحقق من الإنترنت وحاول مرة أخرى.' : 'تعذّر تغيير كلمة المرور. حاول مرة أخرى.'); }
+    finally { btn.disabled = false; btn.innerHTML = label; }
   };
+  ['#pw1','#pw2'].forEach(id => $(id)?.addEventListener('input', () => { $('#pwErr').hidden = true; }));
 };
 
 /* =================== MODALS =================== */
