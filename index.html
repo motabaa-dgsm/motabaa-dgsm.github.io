@@ -679,6 +679,8 @@ async function boot(){
 async function enterLive(uid){
   S.data = await DB.load();
   S.me = person(uid); S.anim = true;
+  S.view = 'dashboard'; S.openTask = null; S.modal = null; S.armDelete = false;
+  S.f = {q:'', section:'all', priority:'all', status:'all', topic:'all', who:'all'};
   if (!S.me || !(S.me.role === 'director' || S.me.section_id)){ await DB.signOut(); S.me = null; renderLogin(); setTimeout(() => showLoginError('حسابك لم يُفعّل بعد. تواصل مع مسؤولة النظام لتحديد دورك وقسمك.'), 50); return; }
   render();
 }
@@ -927,7 +929,7 @@ function render(){
 function bindShell(){
   document.querySelectorAll('[data-nav]').forEach(b => b.onclick = () => { S.anim = true; S.view = b.dataset.nav; S.openTask = null; render(); window.scrollTo({top:0}); });
   document.querySelectorAll('[data-act="theme"]').forEach(b => b.onclick = () => { applyTheme(isDark() ? 'light' : 'dark'); render(); });
-  document.querySelectorAll('[data-act="logout"]').forEach(b => b.onclick = async () => { if (LIVE) await DB.signOut(); else store.del('motabaa-demo-user'); S.me = null; S.openTask = null; renderLogin(); });
+  document.querySelectorAll('[data-act="logout"]').forEach(b => b.onclick = async () => { if (LIVE) await DB.signOut(); else store.del('motabaa-demo-user'); S.me = null; S.openTask = null; S.modal = null; S.view = 'dashboard'; S.f = {q:'', section:'all', priority:'all', status:'all', topic:'all', who:'all'}; window.scrollTo({top:0}); renderLogin(); });
   document.querySelectorAll('[data-act="newTask"]').forEach(b => b.onclick = () => openModal({type:'task'}));
   const rs = $('#roleSwitch'); if (rs) rs.onchange = () => { S.me = person(rs.value); store.set('motabaa-demo-user', S.me.id); S.openTask = null; S.f.section = 'all'; render(); };
   document.querySelectorAll('[data-task]').forEach(el => el.addEventListener('click', () => { S.openTask = +el.dataset.task; S.armDelete = false; render(); }));
