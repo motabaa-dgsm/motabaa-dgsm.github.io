@@ -424,6 +424,10 @@ button.kpi:hover .k-ico .ico{transform:scale(1.15) rotate(-6deg)}
 
 .ok-alert{background:var(--green-soft);color:var(--green);border-color:color-mix(in srgb,var(--green) 30%,transparent)}
 
+.link-btn{all:unset;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;color:var(--brand);font-size:13px;font-weight:500;padding:4px 2px;border-radius:6px}
+.link-btn:hover{text-decoration:underline}
+.link-btn:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+
 /* credit */
 .credit{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;color:var(--ink-3);font-size:12.5px;padding-top:16px;margin-top:6px;border-top:1px solid var(--line);text-align:center}
 .credit b{color:var(--ink);font-weight:600;font-family:var(--f-display)}
@@ -616,6 +620,7 @@ const SupaDB = {
   async signIn(email, password){ this.chk(await this.sb.auth.signInWithPassword({email, password})); },
   async signOut(){ await this.sb.auth.signOut(); },
   async changePassword(pw){ this.chk(await this.sb.auth.updateUser({password:pw})); },
+  async resetPassword(email){ this.chk(await this.sb.auth.resetPasswordForEmail(email, {redirectTo: location.origin + location.pathname})); },
   async load(){
     const q = (t, o) => this.sb.from(t).select('*').order(o.col, {ascending:o.asc}).limit(o.limit||2000);
     const [sections, profiles, topics, tasks, updates, meetings, decisions] = await Promise.all([
@@ -667,10 +672,14 @@ async function boot(){
   applyTheme(store.get('motabaa-theme') || 'system');
   try {
     if (!LIVE){ renderNotConnected(); return; }
+    const h = location.hash, isRecovery = /type=recovery/.test(h), linkError = /error_code=|error=access_denied/.test(h);
     await DB.init();
     const ses = await DB.session();
+    if (isRecovery || linkError) history.replaceState(null, '', location.pathname + location.search);
+    if (isRecovery && ses){ S.me = null; renderLogin('newpw'); return; }
     if (ses){ await enterLive(ses.user.id); return; }
     S.me = null; renderLogin();
+    if (linkError) setTimeout(() => showLoginError('رابط تعيين كلمة المرور غير صالح أو انتهت صلاحيته. اطلب رابطًا جديدًا من «نسيت كلمة المرور؟».'), 50);
   } catch (e){
     console.error(e);
     $('#app').innerHTML = `<div class="content"><div class="panel"><h3>تعذّر الاتصال بقاعدة البيانات</h3><p class="hint">${esc(e.message||e)}</p></div></div>`;
@@ -708,7 +717,74 @@ function renderNotConnected(){
 }
 
 /* =================== LOGIN =================== */
-function renderLogin(){
+function loginPane(mode){
+  if (mode === 'forgot') return `
+        <div><h2>استعادة كلمة المرور</h2><p class="lead">أدخل بريدك الإلكتروني المسجّل، وسنرسل لك رابطًا لتعيين كلمة مرور جديدة.</p></div>
+        <form id="forgotForm" class="form" style="padding:0;grid-template-columns:1fr">
+          <div class="field"><label for="lg-email">البريد الإلكتروني</label><input id="lg-email" class="input" type="email" required autocomplete="email" dir="ltr" value="${esc(S.lastEmail||'')}"></div>
+          <div class="login-alert ok-alert" id="fp-ok" role="status" hidden>${ico('check')}<span>إذا كان البريد مسجلًا في النظام فستصلك رسالة خلال دقائق فيها رابط تعيين كلمة مرور جديدة. تحقق أيضًا من مجلد الرسائل غير المرغوب فيها (Spam).</span></div>
+          <div class="login-alert" id="lg-alert" role="alert" hidden>${ico('alert')}<span id="lg-err"></span></div>
+          <button class="btn primary" type="submit" style="justify-content:center;padding:11px">${ico('send','sm')}إرسال الرابط</button>
+          <button class="link-btn" type="button" id="backLogin"><span style="display:inline-flex;transform:scaleX(-1)">${ico('arrow','sm')}</span>العودة لتسجيل الدخول</button>
+        </form>`;
+  if (mode === 'newpw') return `
+        <div><h2>تعيين كلمة مرور جديدة</h2><p class="lead">اختر كلمة مرور جديدة لحسابك، 8 أحرف على الأقل.</p></div>
+        <form id="newpwForm" class="form" style="padding:0;grid-template-columns:1fr">
+          <div class="field"><label for="np1">كلمة المرور الجديدة</label><input id="np1" class="input" type="password" required minlength="8" autocomplete="new-password" dir="ltr"></div>
+          <div class="field"><label for="np2">تأكيد كلمة المرور</label><input id="np2" class="input" type="password" required minlength="8" autocomplete="new-password" dir="ltr"></div>
+          <div class="login-alert ok-alert" id="np-ok" role="status" hidden>${ico('check')}<span>تم تغيير كلمة المرور بنجاح. جارٍ الدخول…</span></div>
+          <div class="login-alert" id="lg-alert" role="alert" hidden>${ico('alert')}<span id="lg-err"></span></div>
+          <button class="btn primary" type="submit" style="justify-content:center;padding:11px">${ico('check','sm')}حفظ والدخول</button>
+        </form>`;
+  return `
+        <div><h2>تسجيل الدخول</h2><p class="lead">ادخل ببريدك الإلكتروني وكلمة المرور الخاصة بك.</p></div>
+        <form id="loginForm" class="form" style="padding:0;grid-template-columns:1fr">
+          <div class="field"><label for="lg-email">البريد الإلكتروني</label><input id="lg-email" class="input" type="email" required autocomplete="email" dir="ltr" value="${esc(S.lastEmail||'')}"></div>
+          <div class="field"><label for="lg-pass">كلمة المرور</label><input id="lg-pass" class="input" type="password" required autocomplete="current-password" dir="ltr"></div>
+          <div style="display:flex;justify-content:flex-end;margin-top:-6px"><button class="link-btn" type="button" id="forgotBtn">نسيت كلمة المرور؟</button></div>
+          <div class="login-alert" id="lg-alert" role="alert" hidden>${ico('alert')}<span id="lg-err"></span></div>
+          <button class="btn primary" type="submit" style="justify-content:center;padding:11px">دخول ${ico('arrow','sm')}</button>
+        </form>`;
+}
+function busy(btn, text){ const label = btn.innerHTML; btn.disabled = true; btn.innerHTML = `<span class="spin"></span>${text}`; return () => { btn.disabled = false; btn.innerHTML = label; }; }
+function bindLogin(mode){
+  const em = $('#lg-email'); if (em) em.addEventListener('input', () => { S.lastEmail = em.value.trim(); hideLoginError(); });
+  $('#lg-pass')?.addEventListener('input', hideLoginError);
+  $('#forgotBtn')?.addEventListener('click', () => { S.lastEmail = $('#lg-email').value.trim(); renderLogin('forgot'); $('#lg-email')?.focus(); });
+  $('#backLogin')?.addEventListener('click', () => renderLogin('login'));
+  if (mode === 'forgot') $('#forgotForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const done = busy(e.target.querySelector('button[type="submit"]'), 'جارٍ الإرسال…');
+    hideLoginError(); $('#fp-ok').hidden = true;
+    try { await DB.resetPassword($('#lg-email').value.trim()); $('#fp-ok').hidden = false; }
+    catch (err){
+      const m = String(err?.message||'').toLowerCase(), st = err?.status;
+      showLoginError(st === 429 || m.includes('rate') || m.includes('seconds') ? 'تم إرسال طلبات كثيرة. انتظر دقيقة ثم حاول مرة أخرى.'
+        : m.includes('fetch') || m.includes('network') ? 'تعذّر الاتصال بالخادم. تحقق من اتصال الإنترنت وحاول مرة أخرى.'
+        : 'تعذّر إرسال الرسالة حاليًا. تواصل مع مسؤولة النظام لإعادة تعيين كلمة المرور.');
+    }
+    finally { done(); }
+  });
+  if (mode === 'newpw') $('#newpwForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const a = $('#np1').value, b = $('#np2').value;
+    hideLoginError();
+    if (a.length < 8) return showLoginError('كلمة المرور يجب أن تكون 8 أحرف على الأقل.');
+    if (a !== b) return showLoginError('كلمتا المرور غير متطابقتين. أعد كتابتهما بنفس الشكل.');
+    const done = busy(e.target.querySelector('button[type="submit"]'), 'جارٍ الحفظ…');
+    try {
+      await DB.changePassword(a); $('#np-ok').hidden = false;
+      const s = await DB.session(); setTimeout(() => enterLive(s.user.id).catch(() => renderLogin()), 1200);
+    } catch (err){
+      done(); const m = String(err?.message||'').toLowerCase();
+      showLoginError(m.includes('different') || m.includes('same') ? 'كلمة المرور الجديدة يجب أن تختلف عن السابقة.'
+        : m.includes('session') || m.includes('expired') || m.includes('jwt') ? 'انتهت صلاحية الرابط. اطلب رابطًا جديدًا من «نسيت كلمة المرور؟».'
+        : 'تعذّر حفظ كلمة المرور. حاول مرة أخرى.');
+    }
+  });
+  ['#np1','#np2'].forEach(id => $(id)?.addEventListener('input', hideLoginError));
+}
+function renderLogin(mode='login'){
   const roles = !LIVE ? [
     {id:'u-dir', title:'مدير الدائرة', sub:'يرى القسمين وكل المهام، ويعتمد الإنجاز', icon:'crown', tone:'brand'},
     {id:'u-hl', title:'رئيس قسم المختبرات', sub:'يوزّع مهام قسمه ويتابعها', icon:'flask', tone:'labs'},
@@ -736,14 +812,7 @@ function renderLogin(){
       </div>
     </section>
     <section class="login-form">
-      ${LIVE ? `
-        <div><h2>تسجيل الدخول</h2><p class="lead">ادخل ببريدك الإلكتروني وكلمة المرور الخاصة بك.</p></div>
-        <form id="loginForm" class="form" style="padding:0;grid-template-columns:1fr">
-          <div class="field"><label for="lg-email">البريد الإلكتروني</label><input id="lg-email" class="input" type="email" required autocomplete="email" dir="ltr"></div>
-          <div class="field"><label for="lg-pass">كلمة المرور</label><input id="lg-pass" class="input" type="password" required autocomplete="current-password" dir="ltr"></div>
-          <div class="login-alert" id="lg-alert" role="alert" hidden>${ico('alert')}<span id="lg-err"></span></div>
-          <button class="btn primary" type="submit" style="justify-content:center;padding:11px">دخول ${ico('arrow','sm')}</button>
-        </form>` : `
+      ${LIVE ? loginPane(mode) : `
         <div>
           <span class="demo-pill">${ico('flask','sm')}نسخة تجريبية ببيانات أمثلة</span>
           <h2 style="margin-top:12px">اختاري الدور للتجربة</h2>
@@ -757,7 +826,9 @@ function renderLogin(){
     </section>
   </div>`;
   drawArt();
-  if (LIVE){
+  if (LIVE && mode !== 'login'){ bindLogin(mode); }
+  else if (LIVE){
+    bindLogin('login');
     $('#loginForm').addEventListener('submit', async e => {
       e.preventDefault();
       const btn = e.target.querySelector('button[type="submit"]'), label = btn.innerHTML;
@@ -768,7 +839,6 @@ function renderLogin(){
       try { const s = await DB.session(); await enterLive(s.user.id); }
       catch (err){ console.error(err); reset(); showLoginError('تم التحقق من حسابك لكن تعذّر تحميل البيانات. حدّث الصفحة وحاول مرة أخرى.'); }
     });
-    ['#lg-email','#lg-pass'].forEach(id => $(id).addEventListener('input', hideLoginError));
   } else {
     document.querySelectorAll('[data-login]').forEach(b => b.onclick = () => {
       S.me = person(b.dataset.login); store.set('motabaa-demo-user', S.me.id); S.view = 'dashboard'; render();
